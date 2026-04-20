@@ -131,6 +131,12 @@
   background: var(--bg3);
 }
 
+.actionGroup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .urlCount {
   font-size: 11px;
   color: var(--text-dim);
@@ -228,13 +234,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 4px;
 }
 
+.resultMeta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
 .summary {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   font-family: var(--sans);
   font-size: 12px;
@@ -245,6 +260,32 @@
 .sumCrit  { color: var(--red); }
 .sumWarn  { color: var(--amber); }
 .sumClean { color: var(--green); }
+
+.downloadBtn {
+  background: transparent;
+  border: 1px solid var(--green);
+  color: var(--green);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.downloadBtn:hover {
+  background: rgba(0, 255, 136, 0.08);
+  box-shadow: var(--glow-g);
+}
+
+.downloadBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  box-shadow: none;
+}
 
 /* ── Footer ── */
 .footer {
@@ -277,5 +318,10 @@
 @media (max-width: 600px) {
   .page { padding: 24px 16px 60px; }
   .logoUrl, .logoRecon { font-size: 30px; }
+  .inputFooter,
+  .resultHeader,
+  .resultMeta { flex-direction: column; align-items: stretch; }
+  .actionGroup { flex-direction: column; align-items: stretch; }
+  .downloadBtn { width: 100%; }
   .metrics { display: none; }
 }

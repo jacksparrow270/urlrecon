@@ -1,7 +1,9 @@
-import { useState, useRef, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
-import type { ScanResult } from '@/lib/types'
+import * as XLSX from 'xlsx'
+
 import ResultCard from '@/components/ResultCard'
+import type { ScanResult } from '@/lib/types'
 import styles from '@/styles/Home.module.css'
 
 const PLACEHOLDER = `https://example.com\nhttps://github.com\nhttps://yoursite.com`
@@ -14,6 +16,25 @@ const BOOT_LINES = [
   '> awaiting target input_',
 ]
 
+function createExportRows(results: ScanResult[]) {
+  return results.map((result) => ({
+    URL: result.url,
+    Verdict: result.verdict,
+    Valid: result.valid ? 'Yes' : 'No',
+    'Status Code': result.status_code ?? '',
+    'Final URL': result.final_url ?? '',
+    'Response Time (ms)': result.response_time_ms ?? '',
+    'SSL Valid': result.ssl_valid === null ? '' : result.ssl_valid ? 'Yes' : 'No',
+    'SSL Days Left': result.ssl_days_left ?? '',
+    'SSL Issuer': result.ssl_issuer ?? '',
+    'Missing Headers Count': result.missing_headers.length,
+    'Missing Headers': result.missing_headers.join(', '),
+    'Present Headers': result.present_headers.join(', '),
+    'Redirect Chain': result.redirect_chain.join(' -> '),
+    Error: result.error ?? '',
+  }))
+}
+
 export default function Home() {
   const [input, setInput] = useState('')
   const [scanning, setScanning] = useState(false)
@@ -23,19 +44,21 @@ export default function Home() {
   const [scanLog, setScanLog] = useState<string[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // Boot animation
   useEffect(() => {
     if (bootLine < BOOT_LINES.length) {
-      const t = setTimeout(() => setBootLine(b => b + 1), 280)
-      return () => clearTimeout(t)
+      const timeoutId = setTimeout(() => setBootLine((value) => value + 1), 280)
+      return () => clearTimeout(timeoutId)
     }
   }, [bootLine])
 
   const parseUrls = (raw: string) =>
-    raw.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))
+    raw
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#'))
 
   const addLog = (line: string) =>
-    setScanLog(prev => [...prev, `[${new Date().toISOString().slice(11,19)}] ${line}`])
+    setScanLog((previous) => [...previous, `[${new Date().toISOString().slice(11, 19)}] ${line}`])
 
   const handleScan = async () => {
     const urls = parseUrls(input)
@@ -50,59 +73,70 @@ export default function Home() {
     addLog('dispatching probe requests...')
 
     try {
-      const res = await fetch('/api/scan', {
+      const response = await fetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ urls }),
       })
 
-      const contentType = res.headers.get('content-type') || ''
+      const contentType = response.headers.get('content-type') || ''
       if (!contentType.includes('application/json')) {
-        throw new Error(`Unexpected ${res.status} response from /api/scan`)
+        throw new Error(`Unexpected ${response.status} response from /api/scan`)
       }
 
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || `HTTP ${res.status}`)
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP ${response.status}`)
       }
 
-      const data = await res.json()
-      addLog(`scan complete — ${data.results.length} result(s) received`)
+      addLog(`scan complete - ${data.results.length} result(s) received`)
 
-      const sorted = [...data.results].sort((a, b) => {
+      const sorted = [...data.results].sort((a: ScanResult, b: ScanResult) => {
         const order: Record<string, number> = { CRITICAL: 0, WARNING: 1, ERROR: 2, CLEAN: 3 }
         return (order[a.verdict] ?? 9) - (order[b.verdict] ?? 9)
       })
 
       setResults(sorted)
 
-      const critical = sorted.filter(r => r.verdict === 'CRITICAL').length
-      const warning  = sorted.filter(r => r.verdict === 'WARNING').length
-      const clean    = sorted.filter(r => r.verdict === 'CLEAN').length
+      const critical = sorted.filter((result) => result.verdict === 'CRITICAL').length
+      const warning = sorted.filter((result) => result.verdict === 'WARNING').length
+      const clean = sorted.filter((result) => result.verdict === 'CLEAN').length
       addLog(`verdict summary: ${critical} critical / ${warning} warning / ${clean} clean`)
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Unknown error'
-      setError(msg)
-      addLog(`ERROR: ${msg}`)
+    } catch (caughtError: unknown) {
+      const message = caughtError instanceof Error ? caughtError.message : 'Unknown error'
+      setError(message)
+      addLog(`ERROR: ${message}`)
     } finally {
       setScanning(false)
     }
   }
 
+  const handleDownloadExcel = () => {
+    if (!results.length) return
+
+    const worksheet = XLSX.utils.json_to_sheet(createExportRows(results))
+    const workbook = XLSX.utils.book_new()
+
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Scan Results')
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    XLSX.writeFile(workbook, `urlrecon-scan-results-${timestamp}.xlsx`)
+  }
+
   const urlCount = parseUrls(input).length
   const hasResults = results.length > 0
-  const critCount = results.filter(r => r.verdict === 'CRITICAL').length
-  const warnCount = results.filter(r => r.verdict === 'WARNING').length
-  const cleanCount = results.filter(r => r.verdict === 'CLEAN').length
+  const critCount = results.filter((result) => result.verdict === 'CRITICAL').length
+  const warnCount = results.filter((result) => result.verdict === 'WARNING').length
+  const cleanCount = results.filter((result) => result.verdict === 'CLEAN').length
 
   return (
     <>
       <Head>
-        <title>URLRecon — passive surface scanner</title>
+        <title>URLRecon - passive surface scanner</title>
       </Head>
 
       <div className={styles.page}>
-        {/* Header */}
         <header className={styles.header}>
           <div className={styles.logo}>
             <span className={styles.logoUrl}>URL</span>
@@ -113,34 +147,37 @@ export default function Home() {
           <div className={styles.headerRule} />
         </header>
 
-        {/* Boot terminal */}
         <div className={styles.boot}>
-          {BOOT_LINES.slice(0, bootLine).map((line, i) => (
-            <div key={i} className={styles.bootLine}
-              style={{ opacity: i < bootLine - 1 ? 0.4 : 1 }}>
+          {BOOT_LINES.slice(0, bootLine).map((line, index) => (
+            <div
+              key={index}
+              className={styles.bootLine}
+              style={{ opacity: index < bootLine - 1 ? 0.4 : 1 }}
+            >
               {line}
             </div>
           ))}
         </div>
 
-        {/* Main panel */}
         <main className={styles.main}>
           <div className={styles.inputPanel}>
             <div className={styles.panelHeader}>
               <span className={styles.panelTitle}>TARGET INPUT</span>
-              <span className={styles.panelHint}>one URL per line · max 10</span>
+              <span className={styles.panelHint}>one URL per line - max 10</span>
             </div>
 
             <textarea
               ref={textareaRef}
               className={styles.textarea}
               value={input}
-              onChange={e => setInput(e.target.value)}
+              onChange={(event) => setInput(event.target.value)}
               placeholder={PLACEHOLDER}
               rows={5}
               spellCheck={false}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleScan()
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                  handleScan()
+                }
               }}
             />
 
@@ -148,69 +185,75 @@ export default function Home() {
               <span className={styles.urlCount}>
                 {urlCount > 0 ? `${urlCount} target${urlCount !== 1 ? 's' : ''} queued` : 'no targets'}
               </span>
-              <button
-                className={styles.scanBtn}
-                onClick={handleScan}
-                disabled={scanning || urlCount === 0}
-              >
-                {scanning
-                  ? <><span className={styles.spinner} />SCANNING...</>
-                  : <>◆ INITIATE SCAN</>
-                }
-              </button>
+              <div className={styles.actionGroup}>
+                <button
+                  type="button"
+                  className={styles.downloadBtn}
+                  onClick={handleDownloadExcel}
+                  disabled={!hasResults}
+                >
+                  DOWNLOAD XLSX
+                </button>
+                <button
+                  type="button"
+                  className={styles.scanBtn}
+                  onClick={handleScan}
+                  disabled={scanning || urlCount === 0}
+                >
+                  {scanning ? <><span className={styles.spinner} />SCANNING...</> : <>INITIATE SCAN</>}
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Scan log */}
           {scanLog.length > 0 && (
             <div className={styles.logPanel}>
-              {scanLog.map((line, i) => (
-                <div key={i} className={styles.logLine}>
+              {scanLog.map((line, index) => (
+                <div key={index} className={styles.logLine}>
                   <span className={styles.logPrompt}>&gt;</span> {line}
                 </div>
               ))}
             </div>
           )}
 
-          {/* Error */}
           {error && (
             <div className={styles.errorBox}>
-              <span className={styles.errorIcon}>✖</span>
+              <span className={styles.errorIcon}>X</span>
               <span>{error}</span>
             </div>
           )}
 
-          {/* Results */}
           {hasResults && (
             <div className={styles.results}>
               <div className={styles.resultHeader}>
-                <span className={styles.panelTitle}>SCAN RESULTS</span>
-                <div className={styles.summary}>
-                  {critCount > 0 && <span className={styles.sumCrit}>{critCount} CRITICAL</span>}
-                  {warnCount > 0 && <span className={styles.sumWarn}>{warnCount} WARNING</span>}
-                  {cleanCount > 0 && <span className={styles.sumClean}>{cleanCount} CLEAN</span>}
+                <div className={styles.resultMeta}>
+                  <span className={styles.panelTitle}>SCAN RESULTS</span>
+                  <div className={styles.summary}>
+                    {critCount > 0 && <span className={styles.sumCrit}>{critCount} CRITICAL</span>}
+                    {warnCount > 0 && <span className={styles.sumWarn}>{warnCount} WARNING</span>}
+                    {cleanCount > 0 && <span className={styles.sumClean}>{cleanCount} CLEAN</span>}
+                  </div>
                 </div>
               </div>
 
-              {results.map((r, i) => (
-                <ResultCard key={r.url + i} result={r} index={i} />
+              {results.map((result, index) => (
+                <ResultCard key={`${result.url}-${index}`} result={result} index={index} />
               ))}
             </div>
           )}
         </main>
 
-        {/* Footer */}
         <footer className={styles.footer}>
           <span>URLRECON</span>
           <span className={styles.footerDim}>//</span>
-          <span className={styles.footerDim}>passive scanner · no data stored · open source</span>
+          <span className={styles.footerDim}>passive scanner - no data stored - open source</span>
           <a
-            href="https://github.com/yourusername/urlrecon"
+            href="https://github.com/jacksparrow270/urlrecon"
             target="_blank"
             rel="noopener noreferrer"
             className={styles.footerLink}
           >
-            github ↗
+            github
           </a>
         </footer>
       </div>
